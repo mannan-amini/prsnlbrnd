@@ -3,10 +3,12 @@
   "version": "2.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "node scripts/sync-content.mjs && next dev",
+    "build": "node scripts/sync-content.mjs && next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "sync": "node scripts/sync-content.mjs",
+    "watch:content": "node scripts/watch-content.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.0.3",
