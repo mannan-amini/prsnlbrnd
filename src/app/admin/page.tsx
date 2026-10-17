@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { Article, Note } from "@/lib/content";
+import { ARTICLES, NOTES, Article, Note } from "@/lib/content";
 import { ArticleEditor } from "@/components/admin/ArticleEditor";
 import { NoteEditor } from "@/components/admin/NoteEditor";
 import {
@@ -27,10 +27,11 @@ import {
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<"articles" | "notes" | "guide">("articles");
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [articles, setArticles] = useState<Article[]>(ARTICLES);
+  const [notes, setNotes] = useState<Note[]>(NOTES);
+  const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isOnlineMode, setIsOnlineMode] = useState(false);
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Editor states
@@ -49,17 +50,38 @@ export default function AdminPage() {
 
   const fetchContent = async () => {
     try {
-      setIsLoading(true);
+      // 1. Try local dynamic API endpoint
       const res = await fetch("/api/content");
-      if (!res.ok) throw new Error("خطا در بارگذاری محتوا");
-      const data = await res.json();
-      setArticles(data.articles || []);
-      setNotes(data.notes || []);
-    } catch (err) {
-      console.error(err);
-      notify("خطا در برقراری ارتباط با سرور محتوا", "error");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.articles && data.articles.length > 0) setArticles(data.articles);
+        if (data.notes && data.notes.length > 0) setNotes(data.notes);
+        setIsOnlineMode(false);
+        return;
+      }
+    } catch {
+      // Fallback
+    }
+
+    // 2. Try static content-data.json
+    try {
+      const resStatic = await fetch("/content-data.json");
+      if (resStatic.ok) {
+        const data = await resStatic.json();
+        if (data.articles && data.articles.length > 0) setArticles(data.articles);
+        if (data.notes && data.notes.length > 0) setNotes(data.notes);
+      } else {
+        setArticles(ARTICLES);
+        setNotes(NOTES);
+      }
+    } catch {
+      setArticles(ARTICLES);
+      setNotes(NOTES);
     } finally {
-      setIsLoading(false);
+      if (typeof window !== "undefined") {
+        const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+        setIsOnlineMode(!isLocal);
+      }
     }
   };
 
@@ -71,7 +93,11 @@ export default function AdminPage() {
     setIsSyncing(true);
     await fetchContent();
     setIsSyncing(false);
-    notify("فایل‌های سیستم با موفقیت بازخوانی و همگام شدند.");
+    if (!isOnlineMode) {
+      notify("فایل‌های سیستم با موفقیت بازخوانی و همگام شدند.");
+    } else {
+      notify("داده‌ها از سرور بازخوانی و به‌روزرسانی شدند.");
+    }
   };
 
   const handleSaveArticle = async (articleData: Partial<Article>) => {
@@ -82,8 +108,17 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "article", ...articleData }),
       });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || "خطا در ذخیره مقاله");
+      if (!res.ok) {
+        let errMsg = "خطا در ذخیره مقاله";
+        try {
+          const result = await res.json();
+          if (result.error) errMsg = result.error;
+        } catch {}
+        if (isOnlineMode) {
+          throw new Error("در نسخه آنلاین امکان ذخیره مستقیم روی هارد وجود ندارد. لطفاً فایل MD را کپی/دانلود کنید یا در لوکال هاست (localhost:3000/admin) ذخیره نمایید.");
+        }
+        throw new Error(errMsg);
+      }
 
       notify(`مقاله «${articleData.title}» با موفقیت ذخیره و در سایت اعمال شد.`);
       setEditingArticle(undefined);
@@ -96,6 +131,10 @@ export default function AdminPage() {
   };
 
   const handleDeleteArticle = async (slug: string, title: string) => {
+    if (isOnlineMode) {
+      notify("در نسخه آنلاین امکان حذف فایل‌های محلی دیسک وجود ندارد. از سرور لوکال استفاده کنید.", "error");
+      return;
+    }
     if (!confirm(`آیا از حذف مقاله «${title}» و فایل Markdown آن اطمینان دارید؟`)) return;
 
     try {
@@ -119,8 +158,17 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "note", ...noteData }),
       });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || "خطا در ذخیره یادداشت");
+      if (!res.ok) {
+        let errMsg = "خطا در ذخیره یادداشت";
+        try {
+          const result = await res.json();
+          if (result.error) errMsg = result.error;
+        } catch {}
+        if (isOnlineMode) {
+          throw new Error("در نسخه آنلاین امکان ذخیره مستقیم روی هارد وجود ندارد. لطفاً متن را کپی کنید یا در سرور لوکال ذخیره نمایید.");
+        }
+        throw new Error(errMsg);
+      }
 
       notify(`یادداشت «${noteData.title}» ذخیره شد.`);
       setEditingNote(undefined);
@@ -133,6 +181,10 @@ export default function AdminPage() {
   };
 
   const handleDeleteNote = async (id: string, title: string) => {
+    if (isOnlineMode) {
+      notify("در نسخه آنلاین امکان حذف فایل‌های محلی دیسک وجود ندارد. از سرور لوکال استفاده کنید.", "error");
+      return;
+    }
     if (!confirm(`آیا از حذف یادداشت «${title}» اطمینان دارید؟`)) return;
 
     try {
@@ -170,9 +222,17 @@ export default function AdminPage() {
             <span className="text-muted/40">/</span>
             <div className="flex items-center gap-2">
               <span className="text-sm font-bold text-navy">استودیو محتوای ادیتوریال</span>
-              <span className="px-2 py-0.5 rounded-full bg-accent-soft text-accent-vibrant text-[11px] font-mono font-semibold">
-                LOCAL MODE
-              </span>
+              {isOnlineMode ? (
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-800 border border-amber-500/20 text-[11px] font-mono font-semibold flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  ONLINE PREVIEW
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-800 border border-emerald-500/20 text-[11px] font-mono font-semibold flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  LOCAL CONNECTED
+                </span>
+              )}
             </div>
           </div>
 
@@ -221,6 +281,18 @@ export default function AdminPage() {
 
       {/* Main Container */}
       <main className="max-w-6xl mx-auto px-6 py-10">
+        {/* Banner for online mode */}
+        {isOnlineMode && (
+          <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/20 text-xs sm:text-sm text-navy flex items-start gap-3">
+            <Sparkles size={18} className="text-amber-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-amber-950">استودیو در حالت مشاهده آنلاین (Live Production)</p>
+              <p className="text-muted-dark leading-relaxed">
+                تمام مقاله‌ها و یادداشت‌های قبلی در دسترس هستند و می‌توانید محتوای آنها را مشاهده، پیش‌نمایش و کپی کنید. برای افزودن یا ویرایش مستقیم که فایل‌های سیستم در پوشه <code className="font-mono text-[11px] bg-white px-1.5 py-0.5 rounded border border-amber-200">content/</code> ذخیره شوند، در کامپیوتر خود دستور <code className="font-mono text-[11px] bg-white px-1.5 py-0.5 rounded border border-amber-200">npm run dev</code> را اجرا کرده و وارد <code className="font-mono text-[11px] bg-white px-1.5 py-0.5 rounded border border-amber-200">localhost:3000/admin</code> شوید.
+              </p>
+            </div>
+          </div>
+        )}
         {/* If editing an article */}
         {editingArticle !== undefined ? (
           <ArticleEditor

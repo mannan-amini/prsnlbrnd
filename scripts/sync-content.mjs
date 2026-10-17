@@ -9,6 +9,7 @@ const rootDir = path.resolve(__dirname, '..');
 const articlesDir = path.join(rootDir, 'content', 'articles');
 const notesDir = path.join(rootDir, 'content', 'notes');
 const outputFile = path.join(rootDir, 'src', 'lib', 'content-data.json');
+const publicOutputFile = path.join(rootDir, 'public', 'content-data.json');
 
 /**
  * Lightweight, robust YAML Frontmatter parser for Markdown files.
@@ -146,6 +147,13 @@ export function syncContent() {
   };
 
   fs.writeFileSync(outputFile, JSON.stringify(payload, null, 2), 'utf-8');
+  try {
+    fs.writeFileSync(publicOutputFile, JSON.stringify(payload, null, 2), 'utf-8');
+  } catch (err) {
+    // If public directory doesn't exist yet, create and write
+    fs.mkdirSync(path.dirname(publicOutputFile), { recursive: true });
+    fs.writeFileSync(publicOutputFile, JSON.stringify(payload, null, 2), 'utf-8');
+  }
   console.log(`✓ [sync-content] Synced ${articles.length} articles and ${notes.length} notes -> ${outputFile}`);
   return payload;
 }
